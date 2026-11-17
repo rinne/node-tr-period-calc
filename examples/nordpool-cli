@@ -1,0 +1,225 @@
+#!/usr/bin/env node
+'use strict';
+
+// nordpool-cli — market day, hour and quarter lookups on the Nord Pool
+// demonstration specs in ./nordpool.js.
+//
+//   nordpool-cli [options]                            now
+//   nordpool-cli [options] <timestamp>                a given time
+//   nordpool-cli [options] day|hour|quarter <n>       first and last second of a period
+//   nordpool-cli [options] describe day|hour|quarter <n>
+//
+// A timestamp is unix seconds, or YYYY-MM-DD[ HH:MM[:SS]] read in the
+// default zone, or the same with a Z or ±HH:MM suffix which overrides
+// the default. The default zone is the local one; --utc makes it UTC
+// and --tz=<zone> sets it. Times are printed in the same zone. With
+// --json every instant is given in UTC, in market time, in the local
+// zone and in the --tz zone (a copy of the local one when not given).
+
+const Optist = require('optist');
+
+const PeriodCalc = require('..');
+const nordpool = require('./nordpool');
+
+function tzCb(s) {
+    try {
+        return PeriodCalc.normalizeTimeZone(s);
+    } catch (_) {
+        return undefined;
+    }
+}
+
+const opt = ((new Optist())
+             .opts([ { longName: 'utc',
+                       conflictsWith: [ 'local', 'tz' ],
+                       description: 'Read and print times in UTC' },
+                     { longName: 'local',
+                       conflictsWith: [ 'utc', 'tz' ],
+                       description: 'Read and print times in the local zone (the default)' },
+                     { longName: 'tz',
+                       hasArg: true,
+                       optArgCb: tzCb,
+                       conflictsWith: [ 'utc', 'local' ],
+                       description: 'Read and print times in the given IANA zone' },
+                     { longName: 'json',
+                       description: 'JSON output with every instant in UTC, market, local and --tz time' } ])
+             .describeParam(0, 'command', 'A timestamp, day|hour|quarter <n>, or describe day|hour|quarter <n>; nothing for now')
+             .additional(0, 3)
+             .help('nordpool-cli')
+             .parse());
+
+const localZone = PeriodCalc.normalizeTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone);
+const tzZone = opt.value('tz') ?? localZone;
+const zone = (opt.value('utc') ? { timeZone: 'UTC', source: 'utc' } :
+              opt.value('tz') ? { timeZone: tzZone, source: 'tz' } :
+              { timeZone: localZone, source: 'local' });
+
+// ---- input ----
+
+function parseIndex(s) {
+    const n = (/^-?\d+$/.test(s) ? Number(s) : NaN);
+    if (! Number.isSafeInteger(n)) {
+        throw new Error('Invalid index: ' + s);
+    }
+    return n;
+}
+
+function parseTimestamp(s) {
+    if (/^-?\d+$/.test(s)) {
+        return Number(s);
+    }
+    const m = s.match(/^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2}(?::\d{2})?))?(Z|[+-]\d{2}:?\d{2})?$/);
+    if (! m) {
+        throw new Error('Invalid timestamp: ' + s);
+    }
+    const dateTime = m[1] + (m[2] ? ('T' + m[2]) : '');
+    if (! m[3]) {
+        return PeriodCalc.parseDateTime(dateTime, zone.timeZone);
+    }
+    const utc = PeriodCalc.parseDateTime(dateTime, 'UTC');
+    if (m[3] === 'Z') {
+        return utc;
+    }
+    const sign = ((m[3][0] === '-') ? -1 : 1);
+    return (utc - (sign * ((Number(m[3].slice(1, 3)) * 3600) + (Number(m[3].slice(-2)) * 60))));
+}
+
+// ---- output ----
+
+function fmt(t) {
+    return PeriodCalc.localTime(t, zone.timeZone).dateTimeStr.replace('T', ' ');
+}
+
+function span(p) {
+    return (fmt(p.first) + ' – ' + fmt(p.last));
+}
+
+function zoneLabel() {
+    return (zone.timeZone + ' (' + zone.source + ')');
+}
+
+function cap(s) {
+    return (s[0].toUpperCase() + s.slice(1));
+}
+
+function zoneJson(t, timeZone) {
+    const l = PeriodCalc.localTime(t, timeZone);
+    return { timeZone: l.timeZone, dateTime: l.dateTimeStr, offset: l.offset };
+}
+
+function timeJson(t) {
+    return { time: t,
+             utc: PeriodCalc.localTime(t, 'UTC').dateTimeStr + 'Z',
+             market: zoneJson(t, nordpool.MARKET_TIME_ZONE),
+             local: zoneJson(t, localZone),
+             tz: zoneJson(t, tzZone) };
+}
+
+function periodJson(kind, p) {
+    return { kind,
+             index: p.index,
+             uri: p.uri,
+             first: timeJson(p.first),
+             last: timeJson(p.last),
+             length: p.last - p.first + 1 };
+}
+
+function printAt(r) {
+    if (opt.value('json')) {
+        console.log(JSON.stringify({ zone,
+                                     time: timeJson(r.time),
+                                     day: periodJson('day', r.day),
+                                     hour: periodJson('hour', r.hour),
+                                     quarter: periodJson('quarter', r.quarter) }, null, 2));
+        return;
+    }
+    const rows = [ [ 'Day', r.day ], [ 'Hour', r.hour ], [ 'Quarter', r.quarter ] ];
+    const w = Math.max(...rows.map(([ , p ]) => p.index.toString().length));
+    console.log('Time     ' + fmt(r.time) + '  ' + zoneLabel());
+    for (const [ label, p ] of rows) {
+        console.log(label.padEnd(8) + ' ' + p.index.toString().padStart(w) + '  ' + span(p));
+    }
+}
+
+function printLimits(kind, p) {
+    if (opt.value('json')) {
+        console.log(JSON.stringify({ zone, period: periodJson(kind, p) }, null, 2));
+        return;
+    }
+    console.log(cap(kind) + ' ' + p.index + '  (times in ' + zoneLabel() + ')');
+    console.log('  first  ' + fmt(p.first) + '  ' + p.first);
+    console.log('  last   ' + fmt(p.last) + '  ' + p.last);
+}
+
+function printDescribe(d) {
+    const p = d.period;
+    if (opt.value('json')) {
+        const r = { zone, period: periodJson(d.kind, p) };
+        if (d.day) {
+            r.day = periodJson('day', d.day);
+        }
+        if (d.hour) {
+            r.hour = periodJson('hour', d.hour);
+        }
+        if (d.hours) {
+            r.hours = d.hours;
+        }
+        if (d.quarters) {
+            r.quarters = d.quarters;
+        }
+        r.countries = d.countries;
+        console.log(JSON.stringify(r, null, 2));
+        return;
+    }
+    const length = p.last - p.first + 1;
+    console.log(cap(d.kind) + ' ' + p.index + '  (times in ' + zoneLabel() + ')');
+    console.log('  uri       ' + p.uri);
+    console.log('  first     ' + fmt(p.first) + '  ' + p.first);
+    console.log('  last      ' + fmt(p.last) + '  ' + p.last);
+    console.log('  length    ' + length + ' s' + ((d.kind === 'day') ? (' (' + (length / 3600) + ' h)') : ''));
+    if (d.day) {
+        console.log('  day       ' + d.day.index + '  ' + span(d.day));
+    }
+    if (d.hour) {
+        console.log('  hour      ' + d.hour.index + '  ' + span(d.hour));
+    }
+    if (d.hours) {
+        console.log('  hours     ' + d.hours.first + ' – ' + d.hours.last + '  (' + d.hours.count + ')');
+    }
+    if (d.quarters) {
+        console.log('  quarters  ' + d.quarters.first + ' – ' + d.quarters.last + '  (' + d.quarters.count + ')');
+    }
+    console.log('  on each country\'s clock');
+    const nw = Math.max(...d.countries.map((c) => c.name.length));
+    const zw = Math.max(...d.countries.map((c) => c.timeZone.length));
+    for (const c of d.countries) {
+        console.log('    ' + c.name.padEnd(nw) + '  ' + c.timeZone.padEnd(zw) + '  ' +
+                    c.first.replace('T', ' ') + ' – ' + c.last.replace('T', ' '));
+    }
+}
+
+// ---- commands ----
+
+try {
+    const rest = opt.rest();
+    if (rest.length === 0) {
+        printAt(nordpool.at());
+    } else if (rest[0] === 'describe') {
+        if (! ((rest.length === 3) && nordpool.KINDS.includes(rest[1]))) {
+            throw new Error('Usage: describe day|hour|quarter <n>');
+        }
+        printDescribe(nordpool.describe(rest[1], parseIndex(rest[2])));
+    } else if (nordpool.KINDS.includes(rest[0])) {
+        if (rest.length !== 2) {
+            throw new Error('Usage: ' + rest[0] + ' <n>');
+        }
+        printLimits(rest[0], nordpool.calc(rest[0]).byIndex(parseIndex(rest[1])));
+    } else if (rest.length === 1) {
+        printAt(nordpool.at(parseTimestamp(rest[0])));
+    } else {
+        throw new Error('Usage: [<timestamp>] | day|hour|quarter <n> | describe day|hour|quarter <n>');
+    }
+} catch (e) {
+    console.error('nordpool-cli: ' + e.message);
+    process.exit(1);
+}

@@ -1,0 +1,41 @@
+{
+    "name": "tr-period-calc",
+    "version": "1.0.0",
+    "description": "Canonical sequential period indexing: fixed-length unix-time periods and calendar periods (day, week, month, year) in IANA time zones, with a self-contained URI form",
+    "main": "period-calc.js",
+    "scripts": {
+        "test": "node --test test/*.test.js"
+    },
+    "engines": {
+        "node": ">=18.0.0"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/rinne/node-tr-period-calc.git"
+    },
+    "keywords": [
+        "period",
+        "interval",
+        "bucket",
+        "epoch",
+        "unix-time",
+        "calendar",
+        "timezone",
+        "dst",
+        "statistics",
+        "uri"
+    ],
+    "author": {
+        "name": "Timo J. Rinne",
+        "email": "tri@iki.fi",
+        "url": "https://github.com/rinne/"
+    },
+    "license": "MIT",
+    "bugs": {
+        "url": "https://github.com/rinne/node-tr-period-calc/issues"
+    },
+    "homepage": "https://github.com/rinne/node-tr-period-calc#readme",
+    "devDependencies": {
+        "optist": "^2.0.1"
+    }
+}
