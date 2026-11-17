@@ -45,7 +45,7 @@ zone data is bundled.
 npm install tr-period-calc
 ```
 
-Node.js `>=18.0.0` is required.
+Node.js `>=24.0.0` is required.
 
 ## Exports
 
@@ -98,6 +98,17 @@ form has three fields:
   dashes and spaces interchangeable (`America/New York`). Any other
   name `Intl` accepts (`US/Eastern`) is used with the spelling given.
 
+The names folded this way are those `Intl.supportedValuesOf('timeZone')`
+lists. Other names, mostly IANA links (`CET`, `US/Eastern`, and on some
+ICU versions renamed zones such as `Asia/Kolkata` or `Europe/Kyiv`), are
+kept exactly as written, case included. They are deliberately not
+resolved to the zone they link to: which name ICU considers canonical
+changes between versions, and a stored URI must not depend on the
+Node.js version that wrote it. The consequence is that `CET` and `cet`,
+or `US/Eastern` and `America/New_York`, compute identical boundaries
+but are different specs with different URIs. Spell links as the IANA
+database does.
+
 The spec is normalized on construction:
 
 - A **fixed** spec is stored as a unix-second `epoch`, a numeric `length`
@@ -107,7 +118,12 @@ The spec is normalized on construction:
   error rather than silently ignored.
 - A **calendar** spec is stored as a `YYYY-MM-DDTHH:MM:SS` epoch, the
   length as `[N]unit` with `N` omitted when 1, and the zone. A unix-second
-  epoch is converted to the local date-time in the zone.
+  epoch is converted to the local date-time in the zone. Only that
+  date-time is kept, so the boundary rules below apply to it as to any
+  other: a unix-second epoch on the second pass through a repeated hour
+  becomes a local time that resolves to the first pass, and period 0
+  then starts one hour (the size of the overlap) before the instant
+  given. The given instant still falls in period 0.
 
 The legacy spec objects of `periodCalculator.js` are accepted as they
 are: `{ periodEpoch, periodLength }` and
@@ -127,6 +143,10 @@ tr-period-calc://[index]?epoch=<epoch>&length=<length>[&tz=<zone>]
   order and percent-encoded, but each at most once, and no other
   parameters are allowed; a URI a future version might produce must not
   be silently misread by this one.
+- The query is decoded as an RFC 3986 query, not as an HTML form: `%XX`
+  is decoded and nothing else, so `+` is a plus sign (`tz=Etc/GMT+3`
+  works as written) and a space must be written `%20` (or use `T` in a
+  date-time).
 - The scheme is matched case-insensitively. A `/` before the `?` is
   tolerated.
 
@@ -153,6 +173,16 @@ Periods are contiguous and disjoint: `last` is always one second before
 the next period's `first`. For fixed specs `last - first + 1` is the
 length; for calendar specs it varies with DST and month length.
 
+A calendar period can be empty. When the local clock skips the whole
+span of a period, its start and the next period's start are the same
+instant and the period has `last === first - 1`. This happened in
+`Pacific/Apia`, which moved across the date line so that 2011-12-30
+never took place there: daily periods keep their one-index-per-local-day
+numbering, and the index of that day is an empty period. `byIndex` and
+`range` return such a period like any other; `byTime` never does, since
+no instant belongs to it. Code that sums or divides by
+`last - first + 1` should allow for zero.
+
 Calendar period boundaries are local wall-clock times. Where the wall
 clock is ambiguous they follow the same rules as the legacy `Date`
 constructor and Temporal's `compatible` disambiguation:
@@ -174,7 +204,12 @@ than it does by the instant; the instant wins.
 
 The supported range is 1000-01-01T00:00:00Z to 9999-12-31T23:59:59Z
 (`PeriodCalc.MIN_TIME` and `PeriodCalc.MAX_TIME`). Times, epochs and
-period boundaries outside it are errors.
+period boundaries outside it are errors. Only periods that lie entirely
+inside the range exist, so near either end of it a time inside the
+range can still be refused: with seven-second periods from epoch 0,
+`byTime(PeriodCalc.MAX_TIME)` throws `Invalid time` because its period
+would end after `MAX_TIME`. Every instant covered by an existing period
+belongs to exactly one.
 
 ## `new PeriodCalc(spec)`
 
@@ -226,6 +261,11 @@ An array of the periods from the one containing `from` to the one
 containing `to`, inclusive, in index order. Times as for `byTime`.
 Throws `Invalid time` when `to` precedes `from`'s period.
 
+The whole array is built at once and there is no limit on its size:
+a year of one-second periods is over 31 million objects. For long spans
+of short periods, take the end indexes with `byTime` and walk them with
+`byIndex` instead.
+
 ## `localTime(time, timeZone)` / `PeriodCalc.localTime(time, timeZone)`
 
 The local wall-clock view of an instant:
@@ -273,6 +313,10 @@ The URI scheme `tr-period-calc` and the supported range in unix seconds.
 
 ## Example: Nord Pool market periods
 
+The example lives in the
+[source repository](https://github.com/rinne/node-tr-period-calc/tree/main/examples);
+it is not part of the npm package.
+
 `examples/nordpool.js` defines the periods of the Nord Pool day-ahead
 market as three specs sharing one epoch, the first traded hour,
 1993-01-01 00:00 CET:
@@ -289,8 +333,9 @@ division. It also carries the countries of the system with their zones,
 so a market day can be shown on each country's clock: 01:00 to 01:00 in
 Finland and the Baltics, 23:00 to 23:00 in Ireland and Portugal.
 
-`examples/nordpool-cli` is a command line tool on top of it. Run
-`npm install` once for its option parser.
+`examples/nordpool-cli` is a command line tool on top of it. In a
+checkout of the repository, run `npm install` once for its option
+parser (`optist`, a development dependency).
 
 ```sh
 node examples/nordpool-cli                          # now
@@ -367,7 +412,8 @@ fields a URI carries as strings.
 
 ## Relation to `periodCalculator.js`
 
-This package supersedes the standalone `periodCalculator.js` functions.
+This package supersedes `periodCalculator.js`, an earlier set of
+standalone functions kept in the source repository for reference.
 Period indexes and starts are identical for every spec both accept, and
 the test suite runs the legacy code side by side to keep it so. The
 differences are deliberate:

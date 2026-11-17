@@ -5,7 +5,7 @@ All notable changes to this package are recorded here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The source lives
 at [github.com/rinne/node-tr-period-calc](https://github.com/rinne/node-tr-period-calc).
 
-## [1.0.0] - 2026-09-09
+## [1.0.0] - Unreleased
 
 ### Added
 
@@ -16,7 +16,8 @@ at [github.com/rinne/node-tr-period-calc](https://github.com/rinne/node-tr-perio
 - The `tr-period-calc://[index]?epoch=…&length=…[&tz=…]` URI form for a spec
   or a single self-contained period, with `PeriodCalc.parseUri` and
   `PeriodCalc.periodByUri`. Every calculator and period exposes its canonical
-  URI.
+  URI. The query is decoded as an RFC 3986 query: `%XX` only, `+` is a
+  literal plus.
 - Calendar periods are computed with `Intl.DateTimeFormat` instead of
   rewriting `process.env.TZ`; the local-clock rules match legacy `Date`
   (and Temporal's `compatible` disambiguation): a time in a DST gap moves
@@ -28,7 +29,9 @@ at [github.com/rinne/node-tr-period-calc](https://github.com/rinne/node-tr-perio
   `nordpool-cli` looks up the periods of a time, the limits of a period, or
   describes one with the periods it belongs to and contains, in local time,
   UTC or a given zone, as text or JSON. `optist` becomes a devDependency for
-  it.
+  it. The example lives in the repository only; the npm package contains
+  the library and its documentation.
+- Requires Node.js 24 or later.
 - The legacy spec objects of `periodCalculator.js` (`periodEpoch` /
   `periodLength` and `calendarEpoch` / `calendarPeriodLength` / `timeZone`)
   are accepted as they are. Indexes and period starts are identical to the

@@ -3,11 +3,16 @@
     "version": "1.0.0",
     "description": "Canonical sequential period indexing: fixed-length unix-time periods and calendar periods (day, week, month, year) in IANA time zones, with a self-contained URI form",
     "main": "period-calc.js",
+    "files": [
+        "period-calc.js",
+        "COPYING",
+        "CHANGELOG.md"
+    ],
     "scripts": {
         "test": "node --test test/*.test.js"
     },
     "engines": {
-        "node": ">=18.0.0"
+        "node": ">=24.0.0"
     },
     "repository": {
         "type": "git",

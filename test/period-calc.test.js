@@ -108,6 +108,10 @@ test('URI parsing and building', function() {
     assert.equal(g.uri, 'tr-period-calc://?epoch=2026-01-01T00:00:00&length=day&tz=Etc/GMT%2B3');
     assert.equal(new PeriodCalc(g.uri).spec.timeZone, 'Etc/GMT+3');
     assert.equal(g.byIndex(0).first, utc(2026, 1, 1, 3));
+    // '+' is a literal plus, not a space; a space must be percent-encoded
+    assert.ok(new PeriodCalc('tr-period-calc://?epoch=2026-01-01&length=day&tz=Etc/GMT+3').equals(g));
+    assert.equal(new PeriodCalc('tr-period-calc://?epoch=2026-01-01%2008:00&length=day').spec.epoch, '2026-01-01T08:00:00');
+    assert.ok(new PeriodCalc('tr-period-calc://?%65poch=2026-01-01&length=day&tz=Etc%2FGMT%2B3&').equals(g));
     // toString / toJSON
     assert.equal(String(g), g.uri);
     assert.equal(JSON.stringify({ g }), JSON.stringify({ g: g.uri }));
@@ -128,6 +132,9 @@ test('invalid URIs', function() {
                         'tr-period-calc://99999999999999999999?epoch=1&length=600',
                         'tr-period-calc://1?',
                         'tr-period-calc://1',
+                        'tr-period-calc://?epoch=1&length=600&tz',
+                        'tr-period-calc://?epoch=1&length=%6',
+                        'tr-period-calc://?epoch=1&length=600&tz=Europe%ZZHelsinki',
                         'period-idx://1?epoch=1&length=600',
                         'http://1?epoch=1&length=600',
                         ' tr-period-calc://?epoch=1&length=600',
@@ -145,6 +152,7 @@ test('invalid URIs', function() {
                         'tr-period-calc://?epoch=1&length=0month',
                         'tr-period-calc://?epoch=1.5&length=600',
                         'tr-period-calc://?epoch=+1&length=600',
+                        'tr-period-calc://?epoch=2026-01-01+08:00&length=600',
                         'tr-period-calc://?epoch=&length=600',
                         'tr-period-calc://?epoch=2026-02-30&length=600',
                         'tr-period-calc://?epoch=2026-01-01T24:00&length=600',
@@ -317,6 +325,32 @@ test('epoch time-of-day inside a DST transition stays consistent', function() {
             checkPeriod(pc, pc.byTime(t), t);
         }
     }
+});
+
+test('a unix-second epoch in a repeated hour resolves to the first occurrence', function() {
+    // Helsinki 2026-10-25: 03:30 EEST is 00:30Z, 03:30 EET is 01:30Z.
+    const second = utc(2026, 10, 25, 1, 30);
+    const pc = new PeriodCalc({ epoch: second, length: 'day', timeZone: 'Europe/Helsinki' });
+    assert.equal(pc.spec.epoch, '2026-10-25T03:30:00');
+    assert.equal(pc.byIndex(0).first, second - 3600);
+    assert.equal(pc.byTime(second).index, 0);
+});
+
+test('a calendar period skipped entirely by the clock is empty', function() {
+    // Samoa moved across the date line: 2011-12-29 23:59:59 (-10) was
+    // followed by 2011-12-31 00:00:00 (+14), so 2011-12-30 never happened.
+    const pc = new PeriodCalc({ epoch: '2011-12-25', length: 'day', timeZone: 'Pacific/Apia' });
+    const skipped = pc.byIndex(5);
+    assert.equal(skipped.first, utc(2011, 12, 30, 10));
+    assert.equal(skipped.last, skipped.first - 1);
+    assert.equal(pc.byIndex(4).last, skipped.first - 1);
+    assert.equal(pc.byIndex(6).first, skipped.first);
+    assert.equal(PeriodCalc.localTime(pc.byIndex(6).first, 'Pacific/Apia').dateTimeStr, '2011-12-31T00:00:00');
+    // no instant belongs to it, but a range across it lists it
+    assert.equal(pc.byTime(skipped.first).index, 6);
+    assert.equal(pc.byTime(skipped.first - 1).index, 4);
+    assert.deepEqual(pc.range(pc.byIndex(4).first, pc.byIndex(6).first).map((p) => p.index), [ 4, 5, 6 ]);
+    assert.deepEqual(PeriodCalc.periodByUri(skipped.uri), skipped);
 });
 
 test('periods stay contiguous when DST changes exactly at the boundary time', function() {

@@ -14,9 +14,11 @@
 //             "week starting Monday 08:00 in New York" is exactly that.
 //
 // Periods are contiguous and non-overlapping in whole unix seconds:
-// period k is [first(k), first(k + 1) - 1]. Every instant in the
-// supported range belongs to exactly one period. Period 0 starts at the
-// epoch, negative indexes precede it.
+// period k is [first(k), first(k + 1) - 1]. Only periods lying entirely
+// inside the supported range exist; every instant covered by them belongs
+// to exactly one. A calendar period whose whole local span is skipped by
+// the clock (Pacific/Apia lost 2011-12-30) is empty: last = first - 1.
+// Period 0 starts at the epoch, negative indexes precede it.
 //
 // URI form, for a spec alone or for one self-contained period:
 //
@@ -376,6 +378,16 @@ function specNormalize(input) {
 
 // ---- URI ----
 
+// One query component, percent-decoded. A '+' is a literal plus, not a
+// space: this is an RFC 3986 query, not a form submission.
+function uriDecode(s) {
+    try {
+        return decodeURIComponent(s);
+    } catch (_) {
+        throw new Error('Invalid URI');
+    }
+}
+
 // Returns { index, spec } with index undefined when the URI carries none
 // and spec in input form (strings).
 function uriParse(uri) {
@@ -391,12 +403,19 @@ function uriParse(uri) {
         }
     }
     const spec = {};
-    for (const [ k, v ] of new URLSearchParams(m[3])) {
-        const name = uriParams.get(k);
+    for (const param of m[3].split('&')) {
+        if (param === '') {
+            continue;
+        }
+        const eq = param.indexOf('=');
+        if (eq < 0) {
+            throw new Error('Invalid URI');
+        }
+        const name = uriParams.get(uriDecode(param.slice(0, eq)));
         if (! (name && ! (name in spec))) {
             throw new Error('Invalid URI');
         }
-        spec[name] = v;
+        spec[name] = uriDecode(param.slice(eq + 1));
     }
     if (! (('epoch' in spec) && ('length' in spec))) {
         throw new Error('Invalid URI');
