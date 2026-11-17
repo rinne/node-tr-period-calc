@@ -5,7 +5,7 @@ All notable changes to this package are recorded here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The source lives
 at [github.com/rinne/node-tr-period-calc](https://github.com/rinne/node-tr-period-calc).
 
-## [1.0.0] - Unreleased
+## [1.0.0] - 2026-11-17
 
 ### Added
 
